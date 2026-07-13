@@ -1,7 +1,8 @@
 # Fase Bônus — Deployment (Interface Streamlit)
 
-> Código-fonte: `app.py` (arquivo inteiro, 160 linhas).
-> Depende de: `modelos/modelo_avc.joblib`, gerado pela Fase 3.
+> Código-fonte: `app.py`.
+> Depende de: `modelos/modelo_knn.joblib` e `modelos/modelo_arvore.joblib`,
+> ambos gerados pela Fase 3.
 
 ## 4.1 Princípio central: separação total entre treino e interface
 
@@ -9,36 +10,58 @@
 cálculo de métrica** — essa é a exigência de maior peso no critério de
 "Qualidade do Código" do projeto. Tudo o que o arquivo faz:
 
-1. carrega o `.joblib` (pipeline completo: pré-processamento + SMOTE + Árvore);
-2. coleta os dados **brutos** do paciente por um formulário;
-3. entrega esses dados ao pipeline e mostra a predição com sua probabilidade.
+1. carrega os `.joblib` (dois pipelines completos: pré-processamento + SMOTE +
+   classificador — um para o KNN, outro para a Árvore);
+2. deixa o usuário **escolher qual dos dois modelos usar**;
+3. coleta os dados **brutos** do paciente por um formulário;
+4. entrega esses dados ao pipeline escolhido e mostra a predição com sua
+   probabilidade.
+
+O sistema não impõe um único algoritmo: **os dois modelos treinados e
+avaliados na Fase 2/3 ficam disponíveis na interface**, e o usuário decide
+qual consultar — por exemplo, para comparar na prática o comportamento mais
+conservador da Árvore (Recall alto) contra o mais parcimonioso do KNN.
 
 A garantia de que o app nunca transforma os dados "do seu próprio jeito" —
 uma fonte clássica de bugs quando treino e aplicação são mantidos
-separadamente — vem de o próprio pipeline salvo reaplicar, sozinho, a mediana
+separadamente — vem de cada pipeline salvo reaplicar, sozinho, a mediana
 de imputação, a escala MinMax e o One-Hot Encoding aprendidos no treino
 (Fase 1). O `app.py` nunca vê o vetor de 17 variáveis numéricas internamente
 usado pelo modelo: ele só manipula os 10 campos brutos do CSV original.
 
-## 4.2 Carregamento do pipeline
+## 4.2 Seleção e carregamento do pipeline
 
 ```python
-CAMINHO_MODELO = Path(__file__).parent / "modelos" / "modelo_avc.joblib"
+PASTA_MODELOS = Path(__file__).parent / "modelos"
+
+MODELOS_DISPONIVEIS = {
+    "Árvore de Decisão (maior Recall — recomendado)": PASTA_MODELOS / "modelo_arvore.joblib",
+    "KNN (K-Nearest Neighbors)": PASTA_MODELOS / "modelo_knn.joblib",
+}
+
+nome_modelo_escolhido = st.selectbox(
+    "Escolha o modelo de predição", list(MODELOS_DISPONIVEIS), key="modelo_escolhido"
+)
+caminho_modelo = MODELOS_DISPONIVEIS[nome_modelo_escolhido]
 
 @st.cache_resource
 def carregar_pipeline(caminho: Path):
     return joblib.load(caminho)
 ```
 
-- O caminho é resolvido **a partir do próprio arquivo** (`__file__`), não do
-  diretório de trabalho corrente — o app funciona independentemente de onde o
-  comando `streamlit run` é executado.
-- `@st.cache_resource` faz o `joblib.load` rodar **uma única vez** por
-  processo do servidor: sem cache, o Streamlit reexecutaria o script inteiro
-  (recarregando o modelo do disco) a cada interação do formulário.
-- Se o arquivo não existir, o app mostra uma mensagem de erro amigável
-  apontando o comando de treino (`python treino_modelo.py`) e chama
-  `st.stop()` — falha explícita em vez de uma exceção crua.
+- Os caminhos são resolvidos **a partir do próprio arquivo** (`__file__`), não
+  do diretório de trabalho corrente — o app funciona independentemente de
+  onde o comando `streamlit run` é executado.
+- O `st.selectbox` é o primeiro elemento interativo da página: a escolha do
+  usuário decide qual `.joblib` será carregado a seguir, antes mesmo do
+  formulário de dados do paciente aparecer.
+- `@st.cache_resource` faz o `joblib.load` rodar **uma única vez por
+  caminho**: como o cache é indexado pelo argumento `caminho`, trocar de
+  modelo no seletor carrega o segundo `.joblib` uma vez e depois reaproveita
+  ambos do cache — sem recarregar do disco a cada interação do formulário.
+- Se o arquivo do modelo escolhido não existir, o app mostra uma mensagem de
+  erro amigável apontando o comando de treino (`python treino_modelo.py`) e
+  chama `st.stop()` — falha explícita em vez de uma exceção crua.
 
 Uma vez carregado, o app expõe qual algoritmo está de fato em uso, lido
 diretamente do objeto (nunca hard-coded no texto da interface):
@@ -120,8 +143,8 @@ probabilidade_avc = float(pipeline.predict_proba(paciente)[0][1])
 streamlit run app.py
 ```
 
-Deve ser executado a partir da raiz do repositório (ou com o `.joblib`
-presente em `modelos/` relativo ao próprio `app.py`), após rodar
+Deve ser executado a partir da raiz do repositório (ou com os dois `.joblib`
+presentes em `modelos/` relativo ao próprio `app.py`), após rodar
 `python treino_modelo.py` pelo menos uma vez.
 
 ## 4.7 Nota de ambiente: por que o `requirements.txt` fixa `pandas<3`
@@ -136,7 +159,7 @@ caminho específico Streamlit + Arrow.
 
 Duas mitigações foram aplicadas e verificadas (o app foi testado de ponta a
 ponta com `streamlit.testing.v1.AppTest`, incluindo os cenários de paciente de
-alto e de baixo risco, sem falhas):
+alto e de baixo risco em **cada um dos dois modelos**, sem falhas):
 
 1. `requirements.txt` fixa `pandas>=2.0,<3.0` — a mesma série de pandas
    distribuída no Google Colab, então o comportamento é idêntico entre

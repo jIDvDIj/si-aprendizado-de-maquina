@@ -1,10 +1,10 @@
 # Fase 2 — Divisão dos Dados, Balanceamento (SMOTE) e Modelagem
 
-> Código-fonte: `treino_modelo.py`, seções 3 e 4 (linhas 281–384).
+> Código-fonte: `treino_modelo.py`, seções 3 e 4.
 
 Esta fase parte do `df_limpo` produzido na Fase 1 (5.109 pacientes, ainda com
 colunas brutas — a transformação numérica só acontece dentro do pipeline) e
-entrega 10 modelos treinados e avaliados: 6 KNN + 4 Árvores de Decisão.
+entrega 28 modelos treinados e avaliados: 24 KNN + 4 Árvores de Decisão.
 
 ## 2.1 Divisão treino/teste
 
@@ -97,22 +97,52 @@ com 1.022 pacientes e os mesmos 50 casos reais de AVC (4,9%).
 ## 2.3 Laço manual de hiperparâmetros
 
 O enunciado pede exploração por **laço manual** (não `GridSearchCV`) — decisão
-didática: cada uma das 10 combinações é uma chamada explícita e visível no
+didática: cada uma das 28 combinações é uma chamada explícita e visível no
 código, facilitando explicar a lógica na apresentação em vez de esconder a
 busca dentro de uma função de biblioteca.
 
-### KNN — 3 valores de K × 2 métricas de distância = 6 combinações
+### KNN — 6 valores de K × 2 métricas de distância × 2 pesos = 24 combinações
+
+A exploração do KNN passou por uma segunda rodada, motivada pelos resultados
+da primeira: com apenas `K ∈ {3, 5, 7}`, o Recall crescia **monotonicamente**
+com K nas 6 combinações originais (26%→38% na Euclidiana, 22%→40% na
+Manhattan) — sinal claro de que o teto ainda não tinha sido alcançado. Duas
+mudanças foram então testadas juntas:
+
+1. **Ampliar o range de K** para `{3, 5, 7, 9, 11, 15}`, para encontrar o
+   ponto em que o Recall de fato para de subir (ou começa a cair).
+2. **Adicionar o parâmetro `weights`** (`"uniform"` vs `"distance"`): por
+   padrão, o KNN pesa todos os K vizinhos igualmente; `weights="distance"`
+   pesa o voto de cada vizinho pelo inverso da distância, dando mais força ao
+   vizinho mais próximo. A hipótese era que isso ajudaria a detectar a classe
+   rara em regiões de fronteira onde as classes se sobrepõem mesmo após o
+   SMOTE.
 
 ```python
 NOME_DISTANCIA = {"euclidean": "Euclidiana", "manhattan": "Manhattan"}
-for metrica_distancia in ["euclidean", "manhattan"]:
-    for k in [3, 5, 7]:
-        knn = KNeighborsClassifier(n_neighbors=k, metric=metrica_distancia)
-        resultados.append(avaliar_modelo(nome, construir_pipeline(knn)))
+NOME_PESO = {"uniform": "uniforme", "distance": "por distância"}
+VALORES_K = [3, 5, 7, 9, 11, 15]
+for peso in ["uniform", "distance"]:
+    for metrica_distancia in ["euclidean", "manhattan"]:
+        for k in VALORES_K:
+            knn = KNeighborsClassifier(n_neighbors=k, metric=metrica_distancia, weights=peso)
+            resultados.append(avaliar_modelo(nome, construir_pipeline(knn)))
 ```
 
-Gera: KNN(K=3,Euclidiana), KNN(K=5,Euclidiana), KNN(K=7,Euclidiana),
-KNN(K=3,Manhattan), KNN(K=5,Manhattan), KNN(K=7,Manhattan).
+Gera as 24 combinações (2 pesos × 2 distâncias × 6 valores de K). **Resultado
+medido:** o Recall de fato continuou subindo até `K=15` (Euclidiana, peso
+uniforme → 52%, o novo melhor KNN, contra 40% da rodada anterior), mas a
+segunda hipótese não se confirmou — `weights="distance"` teve Recall **igual
+ou pior** que `weights="uniform"` em praticamente todas as combinações (ex.:
+K=15 Euclidiana, 52% uniforme vs 44% por distância). Interpretação: com o
+SMOTE já tendo povoado a vizinhança de exemplos sintéticos da classe
+minoritária, dar peso extra ao vizinho mais próximo (em geral um ponto
+majoritário isolado, já que a classe positiva é rara mesmo após o
+balanceamento do treino) não ajuda tanto quanto simplesmente ampliar quantos
+vizinhos "votam" — daí o peso uniforme com K maior vencer. A tabela completa
+com as 24 combinações está em `resultados/resultados_comparativos.csv`; os
+heatmaps, em `resultados/fig_matrizes_knn_uniforme.png` (peso uniforme) e
+`resultados/fig_matrizes_knn_distancia.png` (peso por distância).
 
 ### Árvore de Decisão — 4 profundidades máximas
 
@@ -161,5 +191,5 @@ precisar retreinar nada (Fase 3, Seção 7).
 classe positiva (o que aconteceria, por exemplo, no baseline trivial da
 Fase 3).
 
-Ao final desta fase, a lista `resultados` contém 10 dicionários — a matéria-
+Ao final desta fase, a lista `resultados` contém 28 dicionários — a matéria-
 prima para a tabela comparativa e os heatmaps da Fase 3.

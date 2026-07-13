@@ -7,11 +7,16 @@
 #
 # **Dataset:** Stroke Prediction Dataset (Kaggle) — `healthcare-dataset-stroke-data.csv`.
 #
-# **Algoritmos:** KNN (K-Nearest Neighbors) e Árvore de Decisão.
+# **Algoritmos:** KNN (K-Nearest Neighbors) e Árvore de Decisão. O sistema final
+# disponibiliza **os dois modelos**, para que o usuário escolha qual usar na
+# predição — não apenas um único "campeão" fixo.
 #
 # **Métrica decisória:** Recall da classe AVC. Em contexto clínico, o erro mais grave
 # é o **falso negativo** (não detectar um paciente que terá AVC); o Recall mede
-# exatamente a capacidade de "não deixar escapar" os casos positivos.
+# exatamente a capacidade de "não deixar escapar" os casos positivos. Ela é usada
+# para eleger a **melhor configuração de cada algoritmo** (o melhor KNN entre as
+# 24 combinações testadas, a melhor Árvore entre as 4) e para recomendar, entre os
+# dois, qual é o mais indicado ao cenário clínico.
 #
 # **Estrutura deste script** (cada seção corresponde a uma fase do projeto):
 # 1. Carregamento e análise exploratória breve
@@ -20,10 +25,10 @@
 # 4. Fase 2 — Modelagem com laço manual de hiperparâmetros
 # 5. Fase 3 — Avaliação: matrizes de confusão (heatmaps) + tabela comparativa
 # 6. Análise complementar — efeito do SMOTE e interpretabilidade da Árvore
-# 7. Seleção do melhor modelo e salvamento do pipeline completo em `.joblib`
+# 7. Seleção do melhor KNN e da melhor Árvore, e salvamento dos DOIS pipelines em `.joblib`
 #
 # > **Separação de conceitos:** este arquivo contém TODO o treino. A interface
-# > (`app.py`) apenas carrega o `.joblib` salvo aqui — nenhuma lógica é duplicada.
+# > (`app.py`) apenas carrega os `.joblib` salvos aqui — nenhuma lógica é duplicada.
 
 # %%
 # === Instalação de dependências ===
@@ -82,13 +87,14 @@ CANDIDATOS_CSV = [
 ]
 
 # Pastas de saída dos artefatos (criadas automaticamente se não existirem):
-# modelos/    -> pipeline treinado (.joblib), consumido pela interface (app.py)
+# modelos/    -> os DOIS pipelines treinados (.joblib), consumidos pela interface (app.py)
 # resultados/ -> figuras e tabelas de métricas, usadas no relatório
 PASTA_MODELOS = Path("modelos")
 PASTA_RESULTADOS = Path("resultados")
 PASTA_MODELOS.mkdir(exist_ok=True)
 PASTA_RESULTADOS.mkdir(exist_ok=True)
-CAMINHO_MODELO = PASTA_MODELOS / "modelo_avc.joblib"
+CAMINHO_MODELO_KNN = PASTA_MODELOS / "modelo_knn.joblib"
+CAMINHO_MODELO_ARVORE = PASTA_MODELOS / "modelo_arvore.joblib"
 
 # Paleta e "tinta" dos gráficos (tons validados para acessibilidade/daltonismo):
 # heatmaps usam UMA única cor (azul) do claro ao escuro — cor sequencial codifica
@@ -323,7 +329,15 @@ print("O conjunto de TESTE permanece intocado, com a proporção real de ~5%.")
 # Exploramos os hiperparâmetros com **laços `for` explícitos** (decisão didática:
 # cada combinação fica visível e explicável, sem a "caixa-preta" do GridSearchCV):
 #
-# - **KNN**: K ∈ {3, 5, 7} × distância ∈ {Euclidiana, Manhattan} → 6 combinações;
+# - **KNN**: K ∈ {3, 5, 7, 9, 11, 15} × distância ∈ {Euclidiana, Manhattan} ×
+#   peso ∈ {uniforme, por distância} → 24 combinações. O range de K foi
+#   ampliado (a versão original testava só até K=7) porque o Recall crescia
+#   monotonicamente com K nas 6 combinações originais — sinal de que o teto
+#   ainda não tinha sido alcançado. O peso `distance` (mais influência para o
+#   vizinho mais próximo, em vez de todos pesarem igual) foi adicionado porque,
+#   mesmo após o SMOTE, as classes continuam sobrepostas no espaço de atributos:
+#   dar mais peso ao vizinho mais próximo tende a favorecer a detecção da
+#   classe rara nessas regiões de fronteira.
 # - **Árvore de Decisão**: `max_depth` ∈ {3, 5, 10, None} → 4 configurações,
 #   para observar o efeito da profundidade sobre o overfitting.
 #
@@ -366,14 +380,17 @@ def avaliar_modelo(nome: str, pipeline: PipelineImblearn) -> dict:
 
 resultados = []
 
-# --- Laço manual do KNN: 3 valores de K x 2 métricas de distância ---
+# --- Laço manual do KNN: 6 valores de K x 2 métricas de distância x 2 pesos ---
 NOME_DISTANCIA = {"euclidean": "Euclidiana", "manhattan": "Manhattan"}
-for metrica_distancia in ["euclidean", "manhattan"]:
-    for k in [3, 5, 7]:
-        nome = f"KNN (K={k}, {NOME_DISTANCIA[metrica_distancia]})"
-        knn = KNeighborsClassifier(n_neighbors=k, metric=metrica_distancia)
-        resultados.append(avaliar_modelo(nome, construir_pipeline(knn)))
-        print(f"Treinado: {nome}")
+NOME_PESO = {"uniform": "uniforme", "distance": "por distância"}
+VALORES_K = [3, 5, 7, 9, 11, 15]
+for peso in ["uniform", "distance"]:
+    for metrica_distancia in ["euclidean", "manhattan"]:
+        for k in VALORES_K:
+            nome = f"KNN (K={k}, {NOME_DISTANCIA[metrica_distancia]}, peso {NOME_PESO[peso]})"
+            knn = KNeighborsClassifier(n_neighbors=k, metric=metrica_distancia, weights=peso)
+            resultados.append(avaliar_modelo(nome, construir_pipeline(knn)))
+            print(f"Treinado: {nome}")
 
 # --- Laço manual da Árvore de Decisão: 4 profundidades máximas ---
 for profundidade in [3, 5, 10, None]:
@@ -481,8 +498,17 @@ def plotar_grade_matrizes(lista_resultados: list[dict], titulo: str,
 resultados_knn = [r for r in resultados if r["Modelo"].startswith("KNN")]
 resultados_arvore = [r for r in resultados if r["Modelo"].startswith("Árvore")]
 
-plotar_grade_matrizes(resultados_knn, "Matrizes de confusão — KNN (teste)", 2, 3,
-                      PASTA_RESULTADOS / "fig_matrizes_knn.png")
+# Com 24 combinações de KNN, uma única grade ficaria ilegível — dividimos em
+# duas figuras por peso (uniforme / por distância), cada uma com as 2
+# distâncias nas linhas e os 6 valores de K nas colunas (mesma ordem do laço
+# de treino acima, que já agrupa por peso -> distância -> K).
+resultados_knn_uniforme = [r for r in resultados_knn if "peso uniforme" in r["Modelo"]]
+resultados_knn_distancia = [r for r in resultados_knn if "peso por distância" in r["Modelo"]]
+
+plotar_grade_matrizes(resultados_knn_uniforme, "Matrizes de confusão — KNN, peso uniforme (teste)", 2, 6,
+                      PASTA_RESULTADOS / "fig_matrizes_knn_uniforme.png")
+plotar_grade_matrizes(resultados_knn_distancia, "Matrizes de confusão — KNN, peso por distância (teste)", 2, 6,
+                      PASTA_RESULTADOS / "fig_matrizes_knn_distancia.png")
 plotar_grade_matrizes(resultados_arvore, "Matrizes de confusão — Árvore de Decisão (teste)", 2, 2,
                       PASTA_RESULTADOS / "fig_matrizes_arvore.png")
 
@@ -545,46 +571,56 @@ print(f"Top 10 variáveis mais importantes — {melhor_arvore['Modelo']}:\n")
 print(importancias.head(10).round(4).to_string())
 
 # %% [markdown]
-# ## 7. Seleção do melhor modelo e salvamento
+# ## 7. Seleção dos dois modelos finais e salvamento
 #
-# **Critério de decisão:** maior **Recall da classe AVC** no teste (empates são
-# resolvidos pelo F1-Score, que equilibra a precisão). A justificativa é clínica:
-# um falso negativo significa mandar para casa, sem acompanhamento, um paciente
-# que terá AVC — erro muito mais grave que um alarme falso, que apenas gera
-# exames adicionais.
+# O sistema disponibiliza **dois modelos ao usuário final** — o melhor KNN e a
+# melhor Árvore de Decisão —, cada um eleito dentro da sua própria família de
+# hiperparâmetros pelo mesmo **critério decisório**: maior **Recall da classe
+# AVC** no teste (empates resolvidos pelo F1-Score, que equilibra a precisão).
+# A justificativa é clínica: um falso negativo significa mandar para casa, sem
+# acompanhamento, um paciente que terá AVC — erro muito mais grave que um
+# alarme falso, que apenas gera exames adicionais.
+#
+# Os dois pipelines (`melhor_knn` e `melhor_arvore`, já calculados na Seção 6.1
+# para a ablação do SMOTE) são salvos separadamente, para que a interface
+# Streamlit deixe o usuário escolher entre eles. O relatório crítico ainda
+# recomenda um vencedor entre os dois — ver a comparação abaixo.
 
 # %%
-candidatos = [r for r in resultados if r["pipeline"] is not None]
-melhor = max(candidatos, key=lambda r: (r["Recall (AVC)"], r["F1-Score (AVC)"]))
+for resultado in (melhor_knn, melhor_arvore):
+    y_previsto = resultado["pipeline"].predict(X_teste)
+    print("=" * 72)
+    print(f"MODELO: {resultado['Modelo']}")
+    print(f"  Recall (AVC) = {formatar_pct(resultado['Recall (AVC)'])}  <- métrica decisória")
+    print(f"  F1-Score (AVC) = {resultado['F1-Score (AVC)']:.4f} | "
+          f"Precisão (AVC) = {resultado['Precisão (AVC)']:.4f} | "
+          f"Acurácia = {resultado['Acurácia']:.4f}")
+    print(classification_report(y_teste, y_previsto,
+                                target_names=["Sem AVC (0)", "AVC (1)"], zero_division=0))
 
+# Recomendação entre os dois modelos disponibilizados (mesmo critério decisório):
+recomendado = max([melhor_knn, melhor_arvore],
+                  key=lambda r: (r["Recall (AVC)"], r["F1-Score (AVC)"]))
 print("=" * 72)
-print(f"MELHOR MODELO: {melhor['Modelo']}")
-print(f"  Recall (AVC) = {formatar_pct(melhor['Recall (AVC)'])}  <- métrica decisória")
-print(f"  F1-Score (AVC) = {melhor['F1-Score (AVC)']:.4f} | "
-      f"Precisão (AVC) = {melhor['Precisão (AVC)']:.4f} | "
-      f"Acurácia = {melhor['Acurácia']:.4f}")
+print(f"RECOMENDADO PARA O CENÁRIO CLÍNICO: {recomendado['Modelo']} "
+      f"(maior Recall entre os dois modelos disponibilizados)")
 print("=" * 72)
 
-# Relatório completo por classe do campeão (visão detalhada das métricas):
-y_previsto_melhor = melhor["pipeline"].predict(X_teste)
-print("\nClassification report do melhor modelo (conjunto de teste):\n")
-print(classification_report(y_teste, y_previsto_melhor,
-                            target_names=["Sem AVC (0)", "AVC (1)"], zero_division=0))
+# %%
+# --- Salvamento dos DOIS pipelines COMPLETOS (pré-processamento + SMOTE + modelo) ---
+# Cada arquivo é o pipeline treinado no conjunto de treino — exatamente o objeto
+# que gerou as métricas reportadas acima, garantindo total rastreabilidade entre
+# o relatório e os artefatos entregues à interface.
+joblib.dump(melhor_knn["pipeline"], CAMINHO_MODELO_KNN)
+joblib.dump(melhor_arvore["pipeline"], CAMINHO_MODELO_ARVORE)
+print(f"Pipeline KNN salvo em: {CAMINHO_MODELO_KNN}")
+print(f"Pipeline Árvore salvo em: {CAMINHO_MODELO_ARVORE}")
 
 # %%
-# --- Salvamento do PIPELINE COMPLETO (pré-processamento + SMOTE + modelo) ---
-# Salvamos o pipeline treinado no conjunto de treino — exatamente o objeto que
-# gerou as métricas reportadas acima, garantindo total rastreabilidade entre o
-# relatório e o artefato entregue à interface.
-joblib.dump(melhor["pipeline"], CAMINHO_MODELO)
-print(f"Pipeline salvo em: {CAMINHO_MODELO}")
-
-# %%
-# --- Prova final: simulação do fluxo da interface ---
-# Recarregamos o .joblib e enviamos um paciente FICTÍCIO com dados BRUTOS
+# --- Prova final: simulação do fluxo da interface para os DOIS modelos ---
+# Recarregamos cada .joblib e enviamos um paciente FICTÍCIO com dados BRUTOS
 # (mesmo formato que o formulário do app envia). Nenhuma transformação manual:
-# o pipeline aplica imputação, encoding e escala sozinho.
-pipeline_carregado = joblib.load(CAMINHO_MODELO)
+# cada pipeline aplica imputação, encoding e escala sozinho.
 paciente_exemplo = pd.DataFrame([{
     "gender": "Male",
     "age": 67.0,
@@ -597,11 +633,15 @@ paciente_exemplo = pd.DataFrame([{
     "bmi": 36.6,
     "smoking_status": "formerly smoked",
 }])
-predicao = pipeline_carregado.predict(paciente_exemplo)[0]
-probabilidade_avc = pipeline_carregado.predict_proba(paciente_exemplo)[0][1]
-print("Paciente fictício de alto risco ->",
-      "COM RISCO DE AVC" if predicao == 1 else "SEM RISCO DE AVC",
-      f"(probabilidade de AVC: {formatar_pct(probabilidade_avc)})")
+for nome_arquivo, caminho in [("KNN", CAMINHO_MODELO_KNN), ("Árvore", CAMINHO_MODELO_ARVORE)]:
+    pipeline_carregado = joblib.load(caminho)
+    predicao = pipeline_carregado.predict(paciente_exemplo)[0]
+    probabilidade_avc = pipeline_carregado.predict_proba(paciente_exemplo)[0][1]
+    print(f"[{nome_arquivo}] Paciente fictício de alto risco ->",
+          "COM RISCO DE AVC" if predicao == 1 else "SEM RISCO DE AVC",
+          f"(probabilidade de AVC: {formatar_pct(probabilidade_avc)})")
+
 print("\nTreino concluído. Artefatos gerados:")
-print(f"  {CAMINHO_MODELO}  (pipeline completo, consumido pelo app.py)")
+print(f"  {CAMINHO_MODELO_KNN}  (pipeline KNN, consumido pelo app.py)")
+print(f"  {CAMINHO_MODELO_ARVORE}  (pipeline Árvore, consumido pelo app.py)")
 print(f"  {PASTA_RESULTADOS}/  (tabelas de métricas em .csv e figuras fig_*.png)")

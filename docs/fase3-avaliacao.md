@@ -1,18 +1,19 @@
-# Fase 3 — Avaliação de Métricas, Comparação e Seleção do Melhor Modelo
+# Fase 3 — Avaliação de Métricas, Comparação e Seleção dos Modelos Finais
 
-> Código-fonte: `treino_modelo.py`, seções 5, 6 e 7 (linhas 386–607).
+> Código-fonte: `treino_modelo.py`, seções 5, 6 e 7.
 > Artefatos gerados: `resultados/resultados_comparativos.csv`,
-> `resultados/resultados_efeito_smote.csv`, `resultados/fig_matrizes_knn.png`,
-> `resultados/fig_matrizes_arvore.png`, `modelos/modelo_avc.joblib`.
+> `resultados/resultados_efeito_smote.csv`, `resultados/fig_matrizes_knn_uniforme.png`,
+> `resultados/fig_matrizes_knn_distancia.png`, `resultados/fig_matrizes_arvore.png`,
+> `modelos/modelo_knn.joblib`, `modelos/modelo_arvore.joblib`.
 
-Esta é a fase de maior peso na avaliação do projeto (40%). Ela parte dos 10
-modelos treinados na Fase 2 e responde três perguntas: qual métrica decide o
-"melhor" modelo, o que cada modelo realmente acertou/errou, e por que a
-acurácia sozinha enganaria aqui.
+Esta é a fase de maior peso na avaliação do projeto (40%). Ela parte dos 28
+modelos treinados na Fase 2 (24 KNN + 4 Árvores) e responde três perguntas:
+qual métrica decide o "melhor" modelo, o que cada modelo realmente
+acertou/errou, e por que a acurácia sozinha enganaria aqui.
 
 ## 3.1 Por que a acurácia é enganosa neste problema (medido, não hipotético)
 
-Antes de comparar os 10 modelos, o script calcula um **baseline trivial**:
+Antes de comparar os 28 modelos, o script calcula um **baseline trivial**:
 um "modelo" que prevê "sem AVC" para todos os 1.022 pacientes de teste —
 zero lógica, apenas a classe majoritária:
 
@@ -25,7 +26,7 @@ acuracia_baseline = (y_teste == 0).mean()   # 972 / 1022 = 0,9511
 | Acurácia | **95,11%** |
 | Recall (AVC) | **0%** |
 
-O baseline supera em acurácia **todos os 10 modelos treinados** — e ainda
+O baseline supera em acurácia **todos os 28 modelos treinados** — e ainda
 assim é clinicamente inútil: não identifica um único paciente de risco. Isso
 comprova, com o próprio dataset, por que a acurácia não pode ser o critério
 de decisão em um problema com 95% dos exemplos em uma classe: ela mede
@@ -66,18 +67,25 @@ tabela_resultados = (
 tabela_resultados.to_csv(PASTA_RESULTADOS / "resultados_comparativos.csv", index=False)
 ```
 
+Com 28 modelos, a tabela abaixo mostra a Árvore vencedora, o melhor KNN
+(agora **K=15, Euclidiana, peso uniforme**, resultado da ampliação de range
+discutida na Fase 2) e os demais destaques; a lista completa das 24
+combinações de KNN está em `resultados/resultados_comparativos.csv`.
+
 | Modelo | Acurácia | Precisão (AVC) | Recall (AVC) | F1-Score (AVC) |
 |---|---:|---:|---:|---:|
-| **Árvore (max_depth=5)** ← melhor | 0,6840 | 0,1155 | **0,8200** | **0,2025** |
+| **Árvore (max_depth=5)** ← recomendado | 0,6840 | 0,1155 | **0,8200** | **0,2025** |
 | Árvore (max_depth=3) | 0,6605 | 0,1082 | 0,8200 | 0,1911 |
 | Árvore (max_depth=10) | 0,7407 | 0,1147 | 0,6400 | 0,1945 |
-| KNN (K=7, Manhattan) | 0,8366 | 0,1274 | 0,4000 | 0,1932 |
-| KNN (K=7, Euclidiana) | 0,8131 | 0,1061 | 0,3800 | 0,1659 |
-| KNN (K=5, Euclidiana) | 0,8278 | 0,1063 | 0,3400 | 0,1619 |
-| KNN (K=5, Manhattan) | 0,8503 | 0,1241 | 0,3400 | 0,1818 |
-| KNN (K=3, Euclidiana) | 0,8552 | 0,1048 | 0,2600 | 0,1494 |
+| **KNN (K=15, Euclidiana, peso uniforme)** ← melhor KNN | 0,7583 | 0,1044 | **0,5200** | 0,1739 |
+| KNN (K=15, Manhattan, peso uniforme) | 0,7926 | 0,1143 | 0,4800 | 0,1846 |
+| KNN (K=15, Euclidiana, peso por distância) | 0,7965 | 0,1089 | 0,4400 | 0,1746 |
+| KNN (K=11, Euclidiana, peso uniforme) | 0,7818 | 0,1014 | 0,4400 | 0,1648 |
+| KNN (K=9, Euclidiana, peso uniforme) | 0,7916 | 0,1024 | 0,4200 | 0,1647 |
+| KNN (K=7, Manhattan, peso uniforme) | 0,8366 | 0,1274 | 0,4000 | 0,1932 |
+| ⋮ (mais 15 combinações de KNN, Recall entre 0,20 e 0,40) | | | | |
 | Árvore (max_depth=None) | 0,8718 | 0,1143 | 0,2400 | 0,1548 |
-| KNN (K=3, Manhattan) | 0,8630 | 0,0982 | 0,2200 | 0,1358 |
+| KNN (K=3, Manhattan, peso por distância) | 0,8699 | 0,0971 | 0,2000 | 0,1307 |
 | Baseline trivial | 0,9511 | 0,0000 | 0,0000 | 0,0000 |
 
 ## 3.4 Matrizes de confusão como heatmaps
@@ -133,9 +141,13 @@ adicional, não a um diagnóstico definitivo — esse é o trade-off desejado: o
 custo de 314 falsos positivos é operacional; o custo de deixar 9 (ou mais)
 falsos negativos passarem sem acompanhamento é, potencialmente, uma vida.
 
-Os heatmaps completos das 10 combinações estão em
-`resultados/fig_matrizes_knn.png` (2×3: KNN) e
-`resultados/fig_matrizes_arvore.png` (2×2: Árvore).
+Os heatmaps completos das 28 combinações estão em
+`resultados/fig_matrizes_knn_uniforme.png` (2×6: KNN, peso uniforme),
+`resultados/fig_matrizes_knn_distancia.png` (2×6: KNN, peso por distância) e
+`resultados/fig_matrizes_arvore.png` (2×2: Árvore). Os dois heatmaps de KNN
+são separados por peso porque uma única grade com as 24 combinações ficaria
+ilegível; dentro de cada figura, as linhas são as 2 métricas de distância e
+as colunas os 6 valores de K, na mesma ordem do laço de treino.
 
 ## 3.5 Ablação: o que acontece sem o SMOTE
 
@@ -153,18 +165,20 @@ pipeline_sem_smote = PipelineSklearn(steps=[
 
 | Modelo | Cenário | Recall (AVC) | Precisão (AVC) | Acurácia |
 |---|---|---:|---:|---:|
-| KNN (K=7, Manhattan) | com SMOTE | 0,40 | 0,1274 | 0,8366 |
-| KNN (K=7, Manhattan) | **sem SMOTE** | **0,02** | 0,5000 | 0,9511 |
+| KNN (K=15, Euclidiana, peso uniforme) | com SMOTE | 0,52 | 0,1044 | 0,7583 |
+| KNN (K=15, Euclidiana, peso uniforme) | **sem SMOTE** | **0,04** | 1,0000 | 0,9530 |
 | Árvore (max_depth=5) | com SMOTE | 0,82 | 0,1155 | 0,6840 |
 | Árvore (max_depth=5) | **sem SMOTE** | **0,04** | 0,4000 | 0,9501 |
 
 Sem balanceamento, os dois algoritmos degeneram para perto do baseline
-trivial: acurácia ~95%, mas Recall de apenas 2–4%. A precisão sem SMOTE
-parece "melhor" (0,40–0,50), mas é enganosa pela mesma razão da Seção 3.1: com
-tão poucas previsões positivas, as raras que acertam elevam artificialmente a
-precisão, enquanto a imensa maioria dos casos reais de AVC passa despercebida.
-**Conclusão do projeto: o SMOTE não é um refinamento opcional — é a técnica
-que torna o problema tratável** dado o desbalanceamento de 95%/5%.
+trivial: acurácia ~95%, mas Recall de apenas 4%. A precisão sem SMOTE parece
+"melhor" (0,40–1,00), mas é enganosa pela mesma razão da Seção 3.1: com tão
+poucas previsões positivas, as raras que acertam elevam artificialmente a
+precisão — o KNN sem SMOTE chega a 100% de precisão prevendo AVC para
+praticamente ninguém —, enquanto a imensa maioria dos casos reais de AVC
+passa despercebida. **Conclusão do projeto: o SMOTE não é um refinamento
+opcional — é a técnica que torna o problema tratável** dado o
+desbalanceamento de 95%/5%.
 
 ## 3.6 Interpretabilidade — importância de variáveis na Árvore vencedora
 
@@ -189,34 +203,53 @@ com importância zero mostram que, nesta árvore rasa (profundidade 5, 27
 folhas), poucas variáveis chegam a ser usadas — efeito esperado quando uma
 única variável (idade) já separa bem a maior parte dos casos.
 
-## 3.7 Seleção do melhor modelo e desempate
+## 3.7 Seleção do melhor KNN, da melhor Árvore, e desempate
+
+O sistema final disponibiliza **dois modelos** ao usuário (Seção 4 — Fase
+Bônus), não apenas um. Por isso a seleção ocorre **dentro de cada família de
+hiperparâmetros**, com o mesmo critério (Recall, desempate por F1):
 
 ```python
-melhor = max(candidatos, key=lambda r: (r["Recall (AVC)"], r["F1-Score (AVC)"]))
+melhor_knn = max(resultados_knn, key=lambda r: (r["Recall (AVC)"], r["F1-Score (AVC)"]))
+melhor_arvore = max(resultados_arvore, key=lambda r: (r["Recall (AVC)"], r["F1-Score (AVC)"]))
 ```
 
-A chave de ordenação usa uma tupla: primeiro o Recall (critério oficial),
-depois o F1 (desempate). `max_depth=3` e `max_depth=5` empatam em Recall
+Dentro da família Árvore, `max_depth=3` e `max_depth=5` empatam em Recall
 (0,8200, mesmos 9 falsos negativos) — o desempate por F1-Score
 (0,2025 vs 0,1911) favorece **`max_depth=5`**, que comete 24 falsos positivos
 a menos (314 vs 338) para o mesmo poder de detecção: estritamente melhor no
-trade-off Precisão/Recall.
+trade-off Precisão/Recall. Dentro da família KNN, **`K=15`, distância
+Euclidiana, peso uniforme** venceu as demais 23 combinações (Recall 0,52,
+Seção 3.3) — o resultado da segunda rodada de exploração descrita na Fase 2,
+que ampliou o range de K e testou o parâmetro `weights`.
 
-**Modelo eleito: Árvore de Decisão, `max_depth=5`.**
-
-## 3.8 Salvamento do pipeline vencedor
+Os dois modelos ficam então disponíveis na interface. Para a **recomendação
+clínica** do relatório, o script ainda compara os dois vencedores entre si
+pelo mesmo critério:
 
 ```python
-joblib.dump(melhor["pipeline"], CAMINHO_MODELO)   # modelos/modelo_avc.joblib
+recomendado = max([melhor_knn, melhor_arvore],
+                  key=lambda r: (r["Recall (AVC)"], r["F1-Score (AVC)"]))
 ```
 
-O objeto salvo é o **pipeline completo já treinado** (pré-processamento +
-SMOTE + Árvore) extraído diretamente do dicionário de resultados da Fase 2 —
-não há retreino nem reconstrução: é literalmente o mesmo objeto que gerou as
-métricas desta seção, garantindo rastreabilidade total entre o relatório e o
-artefato consumido pela interface (Fase Bônus).
+**Recomendado: Árvore de Decisão, `max_depth=5`** (Recall 0,82 contra 0,40 do
+KNN) — mas o KNN permanece acessível na interface como alternativa.
 
-O script encerra com uma simulação do fluxo real: recarrega o `.joblib` do
-disco e envia um paciente fictício com dados **brutos** (mesmo formato que o
-formulário do `app.py` produzirá), confirmando que o pipeline recarregado
-reaplica sozinho toda a Fase 1 sem qualquer código adicional.
+## 3.8 Salvamento dos dois pipelines
+
+```python
+joblib.dump(melhor_knn["pipeline"], CAMINHO_MODELO_KNN)       # modelos/modelo_knn.joblib
+joblib.dump(melhor_arvore["pipeline"], CAMINHO_MODELO_ARVORE) # modelos/modelo_arvore.joblib
+```
+
+Cada objeto salvo é o **pipeline completo já treinado** (pré-processamento +
+SMOTE + classificador) extraído diretamente do dicionário de resultados da
+Fase 2 — não há retreino nem reconstrução: são literalmente os mesmos objetos
+que geraram as métricas desta seção, garantindo rastreabilidade total entre o
+relatório e os artefatos consumidos pela interface (Fase Bônus).
+
+O script encerra com uma simulação do fluxo real para **os dois modelos**:
+recarrega cada `.joblib` do disco e envia um paciente fictício com dados
+**brutos** (mesmo formato que o formulário do `app.py` produzirá),
+confirmando que cada pipeline recarregado reaplica sozinho toda a Fase 1 sem
+qualquer código adicional.

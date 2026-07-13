@@ -4,12 +4,14 @@ SEPARAÇÃO DE CONCEITOS (critério central do projeto):
 este arquivo NÃO contém nenhuma lógica de treino, pré-processamento manual
 ou métrica. Ele apenas:
 
-1. carrega o PIPELINE COMPLETO salvo por ``treino_modelo.py`` (modelo_avc.joblib),
-   que já embute imputação de nulos, encoding, normalização e o classificador;
-2. coleta os dados BRUTOS do paciente em um formulário;
-3. envia esses dados ao pipeline e exibe a predição com a probabilidade.
+1. carrega os DOIS PIPELINES COMPLETOS salvos por ``treino_modelo.py``
+   (modelos/modelo_knn.joblib e modelos/modelo_arvore.joblib), cada um já
+   embutindo imputação de nulos, encoding, normalização e o classificador;
+2. deixa o usuário ESCOLHER qual dos dois modelos usar;
+3. coleta os dados BRUTOS do paciente em um formulário;
+4. envia esses dados ao pipeline escolhido e exibe a predição com a probabilidade.
 
-Como o pipeline reaplica sozinho as transformações aprendidas no treino,
+Como cada pipeline reaplica sozinho as transformações aprendidas no treino,
 não há risco de a interface transformar os dados de um jeito diferente
 (fonte clássica de bugs quando treino e aplicação são acoplados).
 
@@ -22,9 +24,15 @@ import joblib
 import pandas as pd
 import streamlit as st
 
-# O caminho é resolvido em relação a ESTE arquivo, e não ao diretório corrente,
-# para que o app funcione independentemente de onde o comando for executado.
-CAMINHO_MODELO = Path(__file__).parent / "modelos" / "modelo_avc.joblib"
+# Os caminhos são resolvidos em relação a ESTE arquivo, e não ao diretório
+# corrente, para que o app funcione independentemente de onde for executado.
+PASTA_MODELOS = Path(__file__).parent / "modelos"
+
+# Os dois modelos que o sistema disponibiliza para escolha do usuário.
+MODELOS_DISPONIVEIS = {
+    "Árvore de Decisão (maior Recall — recomendado)": PASTA_MODELOS / "modelo_arvore.joblib",
+    "KNN (K-Nearest Neighbors)": PASTA_MODELOS / "modelo_knn.joblib",
+}
 
 # ---------------------------------------------------------------------------
 # Dicionários de tradução: o formulário fala português com o usuário, mas o
@@ -66,22 +74,29 @@ st.set_page_config(page_title="Preditor de Risco de AVC", page_icon="🧠", layo
 st.title("🧠 Preditor de Risco de AVC")
 st.markdown(
     "Preencha os dados do paciente e receba a **estimativa de risco de AVC** "
-    "calculada pelo modelo de machine learning treinado no projeto."
+    "calculada pelo modelo de machine learning escolhido abaixo."
 )
 
+# --- Seleção do modelo: o sistema disponibiliza os dois algoritmos treinados ---
+# (KNN e Árvore de Decisão), e o usuário escolhe qual deles usar na predição.
+nome_modelo_escolhido = st.selectbox(
+    "Escolha o modelo de predição", list(MODELOS_DISPONIVEIS), key="modelo_escolhido"
+)
+caminho_modelo = MODELOS_DISPONIVEIS[nome_modelo_escolhido]
+
 # Falha amigável caso o artefato de treino ainda não exista.
-if not CAMINHO_MODELO.exists():
+if not caminho_modelo.exists():
     st.error(
-        "Arquivo `modelos/modelo_avc.joblib` não encontrado. "
+        f"Arquivo `{caminho_modelo.relative_to(Path(__file__).parent)}` não encontrado. "
         "Execute primeiro o treino: `python treino_modelo.py`."
     )
     st.stop()
 
-pipeline = carregar_pipeline(CAMINHO_MODELO)
+pipeline = carregar_pipeline(caminho_modelo)
 nome_classificador = type(pipeline.named_steps["modelo"]).__name__
 st.caption(
     f"Modelo em uso: **{nome_classificador}** (pipeline completo com "
-    "pré-processamento embutido, selecionado pelo maior Recall da classe AVC)."
+    "pré-processamento embutido, treinado com SMOTE no conjunto de treino)."
 )
 
 # ---------------------------------------------------------------------------
