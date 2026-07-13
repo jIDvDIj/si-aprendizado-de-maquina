@@ -39,8 +39,7 @@ usar diretamente na interface.
     ├── fase1-preprocessamento.md       # doc. técnica: limpeza, encoding, escala (Fase 1)
     ├── fase2-modelagem.md              # doc. técnica: split, SMOTE, laço de hiperparâmetros (Fase 2)
     ├── fase3-avaliacao.md              # doc. técnica: métricas, heatmaps, seleção do modelo (Fase 3)
-    ├── fase-bonus-deployment.md        # doc. técnica: interface Streamlit (Fase Bônus)
-    ├── base-projeto.md                 # enunciado do projeto
+    ├── fase-bonus-deployment.md        # doc. técnica: interface Streamlit
     └── prompt-base.md                  # especificação técnica das decisões
 ```
 
