@@ -6,14 +6,14 @@
 > `resultados/fig_matrizes_knn_distancia.png`, `resultados/fig_matrizes_arvore.png`,
 > `modelos/modelo_knn.joblib`, `modelos/modelo_arvore.joblib`.
 
-Esta é a fase de maior peso na avaliação do projeto (40%). Ela parte dos 28
-modelos treinados na Fase 2 (24 KNN + 4 Árvores) e responde três perguntas:
+Esta é a fase de maior peso na avaliação do projeto (40%). Ela parte dos 40
+modelos treinados na Fase 2 (24 KNN + 16 Árvores) e responde três perguntas:
 qual métrica decide o "melhor" modelo, o que cada modelo realmente
 acertou/errou, e por que a acurácia sozinha enganaria aqui.
 
 ## 3.1 Por que a acurácia é enganosa neste problema (medido, não hipotético)
 
-Antes de comparar os 28 modelos, o script calcula um **baseline trivial**:
+Antes de comparar os 40 modelos, o script calcula um **baseline trivial**:
 um "modelo" que prevê "sem AVC" para todos os 1.022 pacientes de teste —
 zero lógica, apenas a classe majoritária:
 
@@ -26,7 +26,7 @@ acuracia_baseline = (y_teste == 0).mean()   # 972 / 1022 = 0,9511
 | Acurácia | **95,11%** |
 | Recall (AVC) | **0%** |
 
-O baseline supera em acurácia **todos os 28 modelos treinados** — e ainda
+O baseline supera em acurácia **todos os 40 modelos treinados** — e ainda
 assim é clinicamente inútil: não identifica um único paciente de risco. Isso
 comprova, com o próprio dataset, por que a acurácia não pode ser o critério
 de decisão em um problema com 95% dos exemplos em uma classe: ela mede
@@ -67,26 +67,36 @@ tabela_resultados = (
 tabela_resultados.to_csv(PASTA_RESULTADOS / "resultados_comparativos.csv", index=False)
 ```
 
-Com 28 modelos, a tabela abaixo mostra a Árvore vencedora, o melhor KNN
-(agora **K=15, Euclidiana, peso uniforme**, resultado da ampliação de range
-discutida na Fase 2) e os demais destaques; a lista completa das 24
-combinações de KNN está em `resultados/resultados_comparativos.csv`.
+Com 40 modelos, a tabela abaixo mostra a Árvore recomendada, a configuração
+de maior Recall do grid completo (que **não** foi adotada — ver observação
+abaixo), o melhor KNN (**K=15, Euclidiana, peso uniforme**, resultado da
+ampliação de range discutida na Fase 2) e os demais destaques; a lista
+completa das 40 combinações está em `resultados/resultados_comparativos.csv`.
 
 | Modelo | Acurácia | Precisão (AVC) | Recall (AVC) | F1-Score (AVC) |
 |---|---:|---:|---:|---:|
-| **Árvore (max_depth=5)** ← recomendado | 0,6840 | 0,1155 | **0,8200** | **0,2025** |
-| Árvore (max_depth=3) | 0,6605 | 0,1082 | 0,8200 | 0,1911 |
-| Árvore (max_depth=10) | 0,7407 | 0,1147 | 0,6400 | 0,1945 |
+| Árvore (max_depth=3, max_features=sqrt) — maior Recall do grid, **não adotada** (Seção 3.6) | 0,4384 | 0,0733 | 0,9000 | 0,1355 |
+| **Árvore (max_depth=5, max_features=todas)** ← recomendada | 0,6840 | 0,1155 | **0,8200** | **0,2025** |
+| Árvore (max_depth=3, max_features=todas) | 0,6605 | 0,1082 | 0,8200 | 0,1911 |
+| Árvore (max_depth=5, max_features=50%) | 0,7074 | 0,1073 | 0,6800 | 0,1853 |
+| Árvore (max_depth=10, max_features=todas) | 0,7407 | 0,1147 | 0,6400 | 0,1945 |
 | **KNN (K=15, Euclidiana, peso uniforme)** ← melhor KNN | 0,7583 | 0,1044 | **0,5200** | 0,1739 |
 | KNN (K=15, Manhattan, peso uniforme) | 0,7926 | 0,1143 | 0,4800 | 0,1846 |
 | KNN (K=15, Euclidiana, peso por distância) | 0,7965 | 0,1089 | 0,4400 | 0,1746 |
 | KNN (K=11, Euclidiana, peso uniforme) | 0,7818 | 0,1014 | 0,4400 | 0,1648 |
 | KNN (K=9, Euclidiana, peso uniforme) | 0,7916 | 0,1024 | 0,4200 | 0,1647 |
 | KNN (K=7, Manhattan, peso uniforme) | 0,8366 | 0,1274 | 0,4000 | 0,1932 |
-| ⋮ (mais 15 combinações de KNN, Recall entre 0,20 e 0,40) | | | | |
-| Árvore (max_depth=None) | 0,8718 | 0,1143 | 0,2400 | 0,1548 |
+| ⋮ (demais combinações de KNN e Árvore, Recall entre 0,20 e 0,40) | | | | |
+| Árvore (max_depth=None, max_features=todas) | 0,8718 | 0,1143 | 0,2400 | 0,1548 |
 | KNN (K=3, Manhattan, peso por distância) | 0,8699 | 0,0971 | 0,2000 | 0,1307 |
 | Baseline trivial | 0,9511 | 0,0000 | 0,0000 | 0,0000 |
+
+> A configuração de maior Recall nominal (`max_depth=3, max_features=sqrt`,
+> 90%) sinaliza 569 dos 972 pacientes saudáveis do teste como risco (58,5% de
+> falso-alarme) — inviável como recomendação de triagem. A Seção 3.6 explica
+> por que a eleição do melhor modelo é restrita à família
+> `max_features="todas"`; a investigação completa está em
+> `docs/nota-max-features-idade.md`.
 
 ## 3.4 Matrizes de confusão como heatmaps
 
@@ -126,7 +136,8 @@ grandeza contínua.
 
 ### Matriz de confusão do modelo vencedor
 
-Árvore de Decisão, `max_depth=5`, 1.022 pacientes de teste:
+Árvore de Decisão, `max_depth=5, max_features=todas` (modelo recomendado),
+1.022 pacientes de teste:
 
 | | Previsto: Sem AVC | Previsto: AVC |
 |---|---:|---:|
@@ -141,13 +152,14 @@ adicional, não a um diagnóstico definitivo — esse é o trade-off desejado: o
 custo de 314 falsos positivos é operacional; o custo de deixar 9 (ou mais)
 falsos negativos passarem sem acompanhamento é, potencialmente, uma vida.
 
-Os heatmaps completos das 28 combinações estão em
+Os heatmaps completos das 40 combinações estão em
 `resultados/fig_matrizes_knn_uniforme.png` (2×6: KNN, peso uniforme),
 `resultados/fig_matrizes_knn_distancia.png` (2×6: KNN, peso por distância) e
-`resultados/fig_matrizes_arvore.png` (2×2: Árvore). Os dois heatmaps de KNN
-são separados por peso porque uma única grade com as 24 combinações ficaria
-ilegível; dentro de cada figura, as linhas são as 2 métricas de distância e
-as colunas os 6 valores de K, na mesma ordem do laço de treino.
+`resultados/fig_matrizes_arvore.png` (4×4: Árvore — linhas = `max_depth`,
+colunas = `max_features`). Os dois heatmaps de KNN são separados por peso
+porque uma única grade com as 24 combinações ficaria ilegível; dentro de cada
+figura, as linhas são as 2 métricas de distância e as colunas os 6 valores de
+K, na mesma ordem do laço de treino.
 
 ## 3.5 Ablação: o que acontece sem o SMOTE
 
@@ -203,6 +215,15 @@ com importância zero mostram que, nesta árvore rasa (profundidade 5, 27
 folhas), poucas variáveis chegam a ser usadas — efeito esperado quando uma
 única variável (idade) já separa bem a maior parte dos casos.
 
+Essa concentração motivou uma investigação à parte: usar `max_features` para
+forçar a árvore a considerar outras variáveis em cada divisão (Fase 2, Seção
+2.3). A técnica funcionou — reduziu a importância de `age` para 20%–66% no
+restante do grid —, mas a configuração de maior Recall resultante
+(`max_depth=3, max_features=sqrt`) sinaliza 58,5% dos pacientes saudáveis
+como risco, contra 32,3% da árvore original. Por isso essa família de
+configurações **não entra na eleição do melhor modelo** (Seção 3.7) — fica
+registrada como experimento em `docs/nota-max-features-idade.md`.
+
 ## 3.7 Seleção do melhor KNN, da melhor Árvore, e desempate
 
 O sistema final disponibiliza **dois modelos** ao usuário (Seção 4 — Fase
@@ -211,17 +232,26 @@ hiperparâmetros**, com o mesmo critério (Recall, desempate por F1):
 
 ```python
 melhor_knn = max(resultados_knn, key=lambda r: (r["Recall (AVC)"], r["F1-Score (AVC)"]))
-melhor_arvore = max(resultados_arvore, key=lambda r: (r["Recall (AVC)"], r["F1-Score (AVC)"]))
+
+# Restrita a max_features="todas": ver Seção 3.6 e docs/nota-max-features-idade.md
+# sobre por que a família max_features não entra na eleição oficial.
+resultados_arvore_familia_original = [
+    r for r in resultados_arvore if "max_features=todas" in r["Modelo"]
+]
+melhor_arvore = max(
+    resultados_arvore_familia_original, key=lambda r: (r["Recall (AVC)"], r["F1-Score (AVC)"])
+)
 ```
 
-Dentro da família Árvore, `max_depth=3` e `max_depth=5` empatam em Recall
-(0,8200, mesmos 9 falsos negativos) — o desempate por F1-Score
-(0,2025 vs 0,1911) favorece **`max_depth=5`**, que comete 24 falsos positivos
-a menos (314 vs 338) para o mesmo poder de detecção: estritamente melhor no
-trade-off Precisão/Recall. Dentro da família KNN, **`K=15`, distância
-Euclidiana, peso uniforme** venceu as demais 23 combinações (Recall 0,52,
-Seção 3.3) — o resultado da segunda rodada de exploração descrita na Fase 2,
-que ampliou o range de K e testou o parâmetro `weights`.
+Dentro da família original da Árvore (`max_features="todas"`), `max_depth=3`
+e `max_depth=5` empatam em Recall (0,8200, mesmos 9 falsos negativos) — o
+desempate por F1-Score (0,2025 vs 0,1911) favorece **`max_depth=5`**, que
+comete 24 falsos positivos a menos (314 vs 338) para o mesmo poder de
+detecção: estritamente melhor no trade-off Precisão/Recall. Dentro da família
+KNN, **`K=15`, distância Euclidiana, peso uniforme** venceu as demais 23
+combinações (Recall 0,52, Seção 3.3) — o resultado da segunda rodada de
+exploração descrita na Fase 2, que ampliou o range de K e testou o parâmetro
+`weights`.
 
 Os dois modelos ficam então disponíveis na interface. Para a **recomendação
 clínica** do relatório, o script ainda compara os dois vencedores entre si
@@ -232,8 +262,9 @@ recomendado = max([melhor_knn, melhor_arvore],
                   key=lambda r: (r["Recall (AVC)"], r["F1-Score (AVC)"]))
 ```
 
-**Recomendado: Árvore de Decisão, `max_depth=5`** (Recall 0,82 contra 0,40 do
-KNN) — mas o KNN permanece acessível na interface como alternativa.
+**Recomendada: Árvore de Decisão, `max_depth=5, max_features=todas`** (Recall
+0,82 contra 0,52 do melhor KNN) — mas o KNN permanece acessível na interface
+como alternativa.
 
 ## 3.8 Salvamento dos dois pipelines
 

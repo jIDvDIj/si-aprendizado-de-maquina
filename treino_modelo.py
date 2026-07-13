@@ -15,7 +15,7 @@
 # é o **falso negativo** (não detectar um paciente que terá AVC); o Recall mede
 # exatamente a capacidade de "não deixar escapar" os casos positivos. Ela é usada
 # para eleger a **melhor configuração de cada algoritmo** (o melhor KNN entre as
-# 24 combinações testadas, a melhor Árvore entre as 4) e para recomendar, entre os
+# 24 combinações testadas, a melhor Árvore entre as 16) e para recomendar, entre os
 # dois, qual é o mais indicado ao cenário clínico.
 #
 # **Estrutura deste script** (cada seção corresponde a uma fase do projeto):
@@ -338,8 +338,20 @@ print("O conjunto de TESTE permanece intocado, com a proporção real de ~5%.")
 #   mesmo após o SMOTE, as classes continuam sobrepostas no espaço de atributos:
 #   dar mais peso ao vizinho mais próximo tende a favorecer a detecção da
 #   classe rara nessas regiões de fronteira.
-# - **Árvore de Decisão**: `max_depth` ∈ {3, 5, 10, None} → 4 configurações,
-#   para observar o efeito da profundidade sobre o overfitting.
+# - **Árvore de Decisão**: `max_depth` ∈ {3, 5, 10, None} × `max_features` ∈
+#   {None, sqrt, log2, 0.5} → 16 configurações. O eixo `max_features` foi
+#   adicionado como INVESTIGAÇÃO: sem ele, a árvore vencedora decidia quase
+#   exclusivamente pela idade (88,5% de toda a importância de variáveis) — um
+#   modelo dependente de uma única coluna é frágil e pouco convincente
+#   clinicamente. `max_features` limita quantas variáveis a árvore pode
+#   considerar em CADA divisão, forçando-a a usar outras colunas quando a
+#   idade não está no subconjunto sorteado daquele nó. O experimento reduziu a
+#   dependência da idade (23,6%–65,5%, contra 88,5% original) e até melhorou o
+#   Recall em alguns casos (até 90%), mas ao custo de um falso-alarme muito
+#   maior (até 58,5% dos pacientes saudáveis sinalizados, contra 32,3% da
+#   árvore original) — por isso **a eleição oficial do melhor modelo continua
+#   restrita à família original (`max_features="todas"`)**; o experimento
+#   completo fica documentado em `docs/nota-max-features-idade.md`.
 #
 # Como o balanceamento já é feito pelo SMOTE, **não** usamos `class_weight`
 # na Árvore (as duas técnicas se sobreporiam e distorceriam a comparação).
@@ -392,13 +404,22 @@ for peso in ["uniform", "distance"]:
             resultados.append(avaliar_modelo(nome, construir_pipeline(knn)))
             print(f"Treinado: {nome}")
 
-# --- Laço manual da Árvore de Decisão: 4 profundidades máximas ---
+# --- Laço manual da Árvore de Decisão: 4 profundidades x 4 estratégias de max_features ---
+# max_features limita quantas variáveis (de 17) a árvore pode CONSIDERAR em
+# cada divisão individual — não remove nenhuma coluna do dataset, só restringe
+# o leque de candidatas a cada nó, o que reduz a chance de a mesma variável
+# dominante (idade) ser escolhida em todos os nós.
+NOME_MAX_FEATURES = {None: "todas", "sqrt": "raiz quadrada", "log2": "log2", 0.5: "50%"}
+VALORES_MAX_FEATURES = [None, "sqrt", "log2", 0.5]
 for profundidade in [3, 5, 10, None]:
-    rotulo = profundidade if profundidade is not None else "None (sem limite)"
-    nome = f"Árvore (max_depth={rotulo})"
-    arvore = DecisionTreeClassifier(max_depth=profundidade, random_state=RANDOM_STATE)
-    resultados.append(avaliar_modelo(nome, construir_pipeline(arvore)))
-    print(f"Treinado: {nome}")
+    rotulo_profundidade = profundidade if profundidade is not None else "None (sem limite)"
+    for max_features in VALORES_MAX_FEATURES:
+        nome = f"Árvore (max_depth={rotulo_profundidade}, max_features={NOME_MAX_FEATURES[max_features]})"
+        arvore = DecisionTreeClassifier(
+            max_depth=profundidade, max_features=max_features, random_state=RANDOM_STATE
+        )
+        resultados.append(avaliar_modelo(nome, construir_pipeline(arvore)))
+        print(f"Treinado: {nome}")
 
 # %% [markdown]
 # ## 5. Fase 3 — Avaliação
@@ -466,14 +487,21 @@ def desenhar_matriz(ax, matriz: np.ndarray, titulo: str) -> None:
 
 
 def plotar_grade_matrizes(lista_resultados: list[dict], titulo: str,
-                          n_linhas: int, n_colunas: int, arquivo: Path) -> None:
-    """Monta uma grade de heatmaps de matrizes de confusão e salva em PNG."""
+                          n_linhas: int, n_colunas: int, arquivo: Path,
+                          nome_curto=None) -> None:
+    """Monta uma grade de heatmaps de matrizes de confusão e salva em PNG.
+
+    `nome_curto`, se informado, encurta o nome de cada modelo só para caber
+    no título de cada painel (o nome completo em `res["Modelo"]` continua
+    intacto em toda a lógica de seleção/CSV — a abreviação é puramente visual).
+    """
     fig, eixos = plt.subplots(
         n_linhas, n_colunas, figsize=(3.3 * n_colunas + 1, 3.7 * n_linhas + 1)
     )
     for ax, res in zip(eixos.flat, lista_resultados):
         recall = formatar_pct(res["Recall (AVC)"])
-        desenhar_matriz(ax, res["matriz_confusao"], f"{res['Modelo']}\nRecall (AVC) = {recall}")
+        nome_exibido = nome_curto(res["Modelo"]) if nome_curto else res["Modelo"]
+        desenhar_matriz(ax, res["matriz_confusao"], f"{nome_exibido}\nRecall (AVC) = {recall}")
     for ax in eixos.flat[len(lista_resultados):]:  # esconde eixos sobrando na grade
         ax.set_visible(False)
     # Rótulos de eixo apenas nas bordas da grade (evita repetição e sobreposição)
@@ -509,8 +537,20 @@ plotar_grade_matrizes(resultados_knn_uniforme, "Matrizes de confusão — KNN, p
                       PASTA_RESULTADOS / "fig_matrizes_knn_uniforme.png")
 plotar_grade_matrizes(resultados_knn_distancia, "Matrizes de confusão — KNN, peso por distância (teste)", 2, 6,
                       PASTA_RESULTADOS / "fig_matrizes_knn_distancia.png")
-plotar_grade_matrizes(resultados_arvore, "Matrizes de confusão — Árvore de Decisão (teste)", 2, 2,
-                      PASTA_RESULTADOS / "fig_matrizes_arvore.png")
+# 16 combinações da Árvore (4 profundidades x 4 max_features), na mesma ordem
+# do laço de treino acima: linhas = max_depth, colunas = max_features. Título
+# abreviado (só "depth=X, mf=Y") para caber nos 4 painéis por linha sem
+# sobrepor o painel vizinho — o texto completo "Árvore (max_depth=..." não
+# cabe em ~3,5 polegadas de largura por painel.
+def _abreviar_nome_arvore(nome: str) -> str:
+    rotulo_depth = nome.split("max_depth=")[1].split(",")[0].replace(" (sem limite)", "")
+    rotulo_mf = nome.split("max_features=")[1].rstrip(")")
+    return f"depth={rotulo_depth}, mf={rotulo_mf}"
+
+
+plotar_grade_matrizes(resultados_arvore, "Matrizes de confusão — Árvore de Decisão (teste)", 4, 4,
+                      PASTA_RESULTADOS / "fig_matrizes_arvore.png",
+                      nome_curto=_abreviar_nome_arvore)
 
 # %% [markdown]
 # ## 6. Análises complementares
@@ -522,7 +562,24 @@ plotar_grade_matrizes(resultados_arvore, "Matrizes de confusão — Árvore de D
 
 # %%
 melhor_knn = max(resultados_knn, key=lambda r: (r["Recall (AVC)"], r["F1-Score (AVC)"]))
-melhor_arvore = max(resultados_arvore, key=lambda r: (r["Recall (AVC)"], r["F1-Score (AVC)"]))
+
+# A eleição oficial da Árvore fica restrita à família original de
+# hiperparâmetros (max_features="todas", ou seja, sem restrição de variáveis
+# candidatas por divisão). O eixo max_features foi adicionado para INVESTIGAR
+# a dependência excessiva da árvore na variável `age` (ver Seção 6.2 e
+# `docs/nota-max-features-idade.md`), mas a configuração de maior Recall no
+# grid completo (max_depth=3, max_features="sqrt", Recall=90%) sinaliza 58,5%
+# dos pacientes saudáveis como risco — falso-alarme grande demais para ser a
+# recomendação oficial. Por isso o critério decisório (maior Recall, desempate
+# por F1) é aplicado só dentro da família original, e o restante do grid
+# permanece nos resultados/heatmaps como experimento documentado, não como
+# candidato à eleição.
+resultados_arvore_familia_original = [
+    r for r in resultados_arvore if "max_features=todas" in r["Modelo"]
+]
+melhor_arvore = max(
+    resultados_arvore_familia_original, key=lambda r: (r["Recall (AVC)"], r["F1-Score (AVC)"])
+)
 
 comparacao_smote = []
 for res_com_smote in [melhor_knn, melhor_arvore]:

@@ -4,7 +4,7 @@
 
 Esta fase parte do `df_limpo` produzido na Fase 1 (5.109 pacientes, ainda com
 colunas brutas — a transformação numérica só acontece dentro do pipeline) e
-entrega 28 modelos treinados e avaliados: 24 KNN + 4 Árvores de Decisão.
+entrega 40 modelos treinados e avaliados: 24 KNN + 16 Árvores de Decisão.
 
 ## 2.1 Divisão treino/teste
 
@@ -107,7 +107,7 @@ com 1.022 pacientes e os mesmos 50 casos reais de AVC (4,9%).
 ## 2.3 Laço manual de hiperparâmetros
 
 O enunciado pede exploração por **laço manual** (não `GridSearchCV`) — decisão
-didática: cada uma das 28 combinações é uma chamada explícita e visível no
+didática: cada uma das 40 combinações é uma chamada explícita e visível no
 código, facilitando explicar a lógica na apresentação em vez de esconder a
 busca dentro de uma função de biblioteca.
 
@@ -154,17 +154,43 @@ com as 24 combinações está em `resultados/resultados_comparativos.csv`; os
 heatmaps, em `resultados/fig_matrizes_knn_uniforme.png` (peso uniforme) e
 `resultados/fig_matrizes_knn_distancia.png` (peso por distância).
 
-### Árvore de Decisão — 4 profundidades máximas
+### Árvore de Decisão — 4 profundidades × 4 estratégias de `max_features` = 16 combinações
 
 ```python
+NOME_MAX_FEATURES = {None: "todas", "sqrt": "raiz quadrada", "log2": "log2", 0.5: "50%"}
+VALORES_MAX_FEATURES = [None, "sqrt", "log2", 0.5]
 for profundidade in [3, 5, 10, None]:
-    arvore = DecisionTreeClassifier(max_depth=profundidade, random_state=RANDOM_STATE)
-    resultados.append(avaliar_modelo(nome, construir_pipeline(arvore)))
+    for max_features in VALORES_MAX_FEATURES:
+        arvore = DecisionTreeClassifier(
+            max_depth=profundidade, max_features=max_features, random_state=RANDOM_STATE
+        )
+        resultados.append(avaliar_modelo(nome, construir_pipeline(arvore)))
 ```
 
 `max_depth=None` remove o limite de profundidade — a árvore cresce até que
 todas as folhas sejam puras (ou até o mínimo de amostras por folha), o cenário
 clássico de **overfitting** que a Fase 3 quantifica.
+
+O eixo `max_features` foi adicionado numa segunda rodada, motivado por uma
+observação sobre a árvore vencedora original (`max_depth=5, max_features`
+padrão = todas as 17 variáveis disponíveis em cada divisão): **88,5% de toda
+a decisão da árvore vinha de uma única coluna**, `age`. `max_features` limita
+quantas variáveis a árvore pode considerar em cada divisão individual — não
+remove nenhuma coluna do dataset, só restringe o leque de candidatas a cada
+nó, forçando a árvore a usar outras variáveis quando `age` não está no
+subconjunto sorteado.
+
+**Resultado medido:** a técnica funcionou — em todo o grid, a importância de
+`age` caiu para entre 20% e 66% (dependendo da combinação), e a configuração
+`max_depth=3, max_features="sqrt"` chegou a **superar** a árvore original em
+Recall (90% vs. 82%). Mas o ganho veio com um efeito colateral só visível na
+matriz de confusão completa: essa mesma configuração sinaliza **58,5% dos
+pacientes saudáveis do teste como risco** (569 de 972), contra 32,3% da
+árvore original — falso-alarme grande demais para um sistema de triagem.
+Por isso, **a eleição do melhor modelo continua restrita à família original**
+(`max_features="todas"`) no código — ver `docs/nota-max-features-idade.md`
+para a investigação completa, incluindo o mecanismo por trás do trade-off e
+uma alternativa intermediária não adotada.
 
 **Decisão importante:** a Árvore **não** usa `class_weight="balanced"`. Como o
 balanceamento já é responsabilidade do SMOTE dentro do próprio pipeline,
@@ -201,5 +227,5 @@ precisar retreinar nada (Fase 3, Seção 7).
 classe positiva (o que aconteceria, por exemplo, no baseline trivial da
 Fase 3).
 
-Ao final desta fase, a lista `resultados` contém 28 dicionários — a matéria-
+Ao final desta fase, a lista `resultados` contém 40 dicionários — a matéria-
 prima para a tabela comparativa e os heatmaps da Fase 3.

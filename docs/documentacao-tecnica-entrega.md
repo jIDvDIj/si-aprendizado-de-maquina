@@ -96,6 +96,8 @@ e os heatmaps em `resultados/fig_matrizes_knn_uniforme.png` /
 
 ## 4. Como a Árvore de Decisão foi efetivamente aplicada
 
+### 4.1 Primeira rodada: `max_depth`
+
 `max_depth ∈ {3, 5, 10, None}` — 4 configurações, sem alterações de escopo
 (o enunciado já cobria bem o espaço relevante e o resultado confirmou isso).
 
@@ -111,12 +113,41 @@ do projeto que confirmou a expectativa teórica de forma limpa, sem
 surpresas — ver a discussão de interpretabilidade (importância de variáveis,
 `age` = 88,5%) no `docs/fase3-avaliacao.md`.
 
+### 4.2 Segunda rodada: `max_features` (investigação, não adotada)
+
+A importância de variáveis da árvore vencedora (Seção 4.1) revelou uma
+concentração extrema: **88,5% de toda a decisão vem de `age`** sozinha — um
+modelo assim é frágil e pouco convincente clinicamente. Testou-se
+`max_depth ∈ {3, 5, 10, None}` × `max_features ∈ {None, sqrt, log2, 0,5}` —
+16 configurações — para forçar a árvore a considerar outras variáveis.
+
+A configuração de maior Recall do grid completo, `max_depth=3,
+max_features=sqrt`, **superou** a árvore original em Recall (90% vs. 82%) e
+reduziu a importância de `age` para 23,6%. Só ao calcular a matriz de
+confusão completa (não visível na tabela de métricas por si só) apareceu o
+problema real: essa configuração sinaliza **569 dos 972 pacientes saudáveis
+do teste (58,5%) como risco** — quase o dobro do falso-alarme da árvore
+original (32,3%). Um sistema de triagem que marca mais da metade da
+população saudável como suspeita não é praticável.
+
+**Decisão:** a eleição do melhor modelo foi restrita, no código, à família
+`max_features="todas"` — o resultado final da Árvore continua sendo
+`max_depth=5, max_features=todas`, idêntico ao da Seção 4.1. O grid de 16
+configurações permanece nos resultados/heatmaps como experimento
+documentado. Detalhes completos, incluindo o mecanismo do trade-off e uma
+alternativa intermediária não adotada, em `docs/nota-max-features-idade.md`.
+
 ## 5. O que funcionou (acertos)
 
 - **A escolha do Recall como métrica decisória** se provou correta e foi
   demonstrada com números, não só argumentada: o baseline trivial bate todos
-  os 28 modelos em acurácia (95,11%) e tem Recall 0 — o próprio dataset
+  os 40 modelos em acurácia (95,11%) e tem Recall 0 — o próprio dataset
   comprova por que acurácia sozinha enganaria aqui.
+- **Verificar a matriz de confusão completa antes de eleger um modelo só pelo
+  número de Recall** evitou um erro real: a configuração de maior Recall do
+  grid de `max_features` (90%) parecia, pela tabela de métricas, um
+  resultado estritamente melhor que a árvore original — só a matriz de
+  confusão revelou os 569 falsos positivos que a inviabilizam (Seção 4.2).
 - **A separação SMOTE-só-no-treino via `Pipeline` do imbalanced-learn**
   funcionou exatamente como projetado: a ablação (Seção 3.5 do
   `fase3-avaliacao.md`) mostra que, sem SMOTE, o Recall da Árvore desaba de
@@ -244,6 +275,7 @@ Seção 4.7.
 | `class_weight="balanced"` combinado com SMOTE | Não testado formalmente — descartado por desenho (sobreposição de balanceamento) | **Descartado por decisão de projeto** |
 | SMOTENC (correção da corrupção de variáveis binárias) | Corrigiu o bug, mas derrubou o Recall da Árvore de 82% para 58% | **Testado e revertido** — Recall priorizado |
 | `monotonic_cst` no `DecisionTreeClassifier` (restringir sinal de `hypertension`/`heart_disease`) | — | **Não implementado** (ver Seção 8) |
+| `max_features∈{None,sqrt,log2,0,5}` × `max_depth` na Árvore (16 combos) — reduzir dependência de `age` | Reduziu importância de `age` para 20–66%; a config. de maior Recall (90%) sinaliza 58,5% dos saudáveis como risco | **Testado e revertido** — eleição restrita a `max_features="todas"` (`docs/nota-max-features-idade.md`) |
 
 ## 8. O que pode ser feito (próximos passos concretos)
 
@@ -272,6 +304,12 @@ Em ordem de custo/benefício estimado:
    ainda não tinha sinal claro de platô em todas as combinações — o ganho
    esperado é modesto e não muda a conclusão (KNN perde para a Árvore), mas
    fecharia a pergunta em aberto da Seção 3.2.
+6. **Explorar `max_features` com um critério de decisão que penalize
+   concentração de importância**, não só Recall bruto — a configuração
+   intermediária `max_depth=5, max_features=50%` (Recall 68%, importância de
+   `age` reduzida para 65,5%, falso-alarme quase igual ao original) sugere que
+   existe uma região do grid com trade-off mais favorável do que os dois
+   extremos testados (Seção 4.2).
 
 ## 9. O que não pode ser feito (restrições reais, não preguiça)
 
@@ -291,6 +329,12 @@ Em ordem de custo/benefício estimado:
   Seção 6.3 documenta esse trade-off como decisão consciente, não como
   limitação ignorada. A mitigação da Seção 8.1 (`monotonic_cst`) é uma
   hipótese não testada, não uma solução comprovada.
+- **Não é possível reduzir a dependência de `age` (88,5% de importância) sem
+  custo** com as técnicas testadas até agora: `max_features` funciona, mas o
+  ponto de maior Recall do grid é impraticável (58,5% de falso-alarme) e o
+  ponto mais equilibrado ainda custa 14 pontos percentuais de Recall
+  (Seção 4.2, `docs/nota-max-features-idade.md`). O modelo entregue permanece
+  concentrado numa única variável — uma limitação conhecida e não resolvida.
 - **Não é possível validar o modelo clinicamente** com os dados e o escopo
   deste projeto: o dataset não documenta a origem populacional, tem apenas
   249 casos positivos no total, e nenhuma revisão médica/regulatória foi
@@ -307,13 +351,14 @@ Em ordem de custo/benefício estimado:
 
 | Artefato | Papel |
 |---|---|
-| `treino_modelo.py` / `notebooks/treino_modelo.ipynb` | Treino completo: 28 modelos avaliados, 2 salvos |
-| `modelos/modelo_arvore.joblib` | Pipeline recomendado (Recall 82%) |
+| `treino_modelo.py` / `notebooks/treino_modelo.ipynb` | Treino completo: 40 modelos avaliados, 2 salvos |
+| `modelos/modelo_arvore.joblib` | Pipeline recomendado (Recall 82%, `max_depth=5, max_features=todas`) |
 | `modelos/modelo_knn.joblib` | Pipeline alternativo (Recall 52%) |
 | `app.py` | Interface Streamlit com seletor entre os dois modelos |
 | `docs/relatorio.md` | Relatório crítico (síntese para entrega/apresentação) |
 | `docs/fase1..4*.md` | Documentação técnica por fase (código linha a linha) |
 | `docs/nota-smote-vs-smotenc.md` | Investigação completa do bug da Seção 6.1–6.3 |
+| `docs/nota-max-features-idade.md` | Investigação completa da tentativa de reduzir a dependência de `age` (Seção 4.2) |
 | **`docs/documentacao-tecnica-entrega.md`** (este arquivo) | Síntese de decisões, testes, falhas e limitações |
 
 **Recomendação para a apresentação:** divulgar explicitamente o bug da
