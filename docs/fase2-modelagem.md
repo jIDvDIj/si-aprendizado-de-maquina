@@ -34,13 +34,23 @@ Dois pontos de projeto aqui:
 
 ## 2.2 Balanceamento com SMOTE — o porquê e o como
 
+> **Isto não é a mesma coisa que o encoding da Fase 1.** A Fase 1 converteu
+> texto em número (`gender`, `work_type` etc.) porque os algoritmos só operam
+> sobre números — isso não altera quantas linhas de cada classe existem. O
+> SMOTE, por sua vez, ataca um problema totalmente diferente: a **proporção**
+> entre as classes do alvo. Ver a tabela comparativa em
+> `docs/fase1-preprocessamento.md`, Seção 1.5, para os dois problemas lado a
+> lado.
+
 Com apenas 199 dos 4.087 pacientes de treino sendo casos de AVC (4,9%), um
 classificador treinado direto tende a aprender que "prever sempre negativo"
 já minimiza o erro médio — exatamente o comportamento inútil discutido na
 Fase 3. O **SMOTE** (Synthetic Minority Over-sampling Technique) ataca isso
 **sintetizando novos exemplos da classe minoritária**, interpolando entre
 vizinhos próximos no espaço já normalizado (por isso ele entra depois do
-`ColumnTransformer` no pipeline, nunca antes).
+`ColumnTransformer` no pipeline, nunca antes — o SMOTE só consegue calcular
+distância/interpolação porque a Fase 1 já converteu tudo em número; texto não
+tem "meio-termo" matemático).
 
 ### A regra que não pode ser violada: SMOTE só no treino, só depois do split
 

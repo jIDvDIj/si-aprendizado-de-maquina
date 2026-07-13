@@ -201,6 +201,19 @@ direto__hypertension, direto__heart_disease
 (3 numéricas + 3 binárias + 9 nominais + 2 já-binárias = 17.) Este vetor de 17
 posições é o que efetivamente entra no SMOTE (Fase 2) e nos classificadores.
 
+### Atenção: encoding e balanceamento são dois problemas diferentes
+
+É comum confundir estas duas etapas, mas elas resolvem problemas
+**independentes**, em pontos diferentes do pipeline:
+
+| | Encoding (esta seção, Fase 1) | SMOTE (Fase 2) |
+|---|---|---|
+| **Problema que resolve** | KNN e Árvore só operam sobre números — texto (`"Private"`, `"Female"`) não pode entrar direto na conta de distância do KNN nem no limiar de corte da Árvore. | Apenas 4,9% dos pacientes têm `stroke = 1` — um modelo treinado direto aprende que "prever sempre sem AVC" já minimiza o erro médio. |
+| **O que muda** | O **formato** de cada valor (texto → número), sem alterar quantas linhas existem nem a proporção de classes. | A **quantidade de exemplos** da classe minoritária no treino (por meio de exemplos sintéticos), sem alterar o significado de nenhuma coluna. |
+| **Em que dados age** | Todas as colunas de entrada (`X`), em qualquer linha do dataset. | Só o conjunto de treino, e só depois do split — nunca a coluna-alvo isolada de `X`. |
+
+Ou seja: **converter texto em número não resolve o desbalanceamento, e balancear as classes não dispensa a conversão de texto em número** — o dataset passa pelas duas etapas, nesta ordem, porque cada uma ataca uma limitação distinta dos algoritmos. Se só o encoding fosse feito (sem SMOTE), os modelos ainda aprenderiam majoritariamente a classe 0; se o SMOTE fosse aplicado antes do encoding, ele tentaria sintetizar exemplos interpolando texto, o que não é matematicamente definido — por isso o SMOTE só pode entrar **depois** do `ColumnTransformer` no pipeline (Seção 1.6).
+
 ## 1.6 Por que isso fica num `ColumnTransformer` e não em código solto
 
 Encapsular tudo em um objeto `ColumnTransformer` (em vez de, por exemplo,

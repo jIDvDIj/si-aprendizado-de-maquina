@@ -571,6 +571,83 @@ print(f"Top 10 variáveis mais importantes — {melhor_arvore['Modelo']}:\n")
 print(importancias.head(10).round(4).to_string())
 
 # %% [markdown]
+# ### 6.3 Visualização gráfica da estrutura da Árvore
+# Um diagrama da árvore inteira (nós, limiares de corte e folhas) torna as
+# regras de decisão auditáveis visualmente — o complemento natural da tabela
+# de importância de variáveis acima, que só diz QUANTO cada variável pesou,
+# não COMO ela foi usada.
+
+# %%
+from matplotlib.colors import LinearSegmentedColormap, to_rgb
+from sklearn.tree import plot_tree
+
+# Escala divergente (azul = Sem AVC, vermelho = AVC, cinza = folha indecisa a
+# 50/50), reaproveitando os mesmos tons-âncora já usados nos heatmaps de
+# matriz de confusão (RAMPA_AZUL) e no vermelho categórico do projeto — em
+# vez da paleta padrão do plot_tree, para manter uma identidade visual única
+# em todas as figuras do relatório.
+AZUL_ESCURO_ARVORE = RAMPA_AZUL[-1]   # mesmo tom mais escuro da rampa sequencial
+VERMELHO_BASE_ARVORE = "#e34948"      # vermelho categórico do projeto
+
+
+def _escurecer(cor_hex: str, fator: float = 0.72) -> tuple:
+    """Escurece uma cor multiplicando seus canais RGB — usado para obter um
+    polo vermelho com intensidade visual comparável ao azul mais escuro da
+    rampa sequencial já validada, sem inventar um tom fora da paleta base."""
+    r, g, b = to_rgb(cor_hex)
+    return (r * fator, g * fator, b * fator)
+
+
+CMAP_DIVERGENTE_ARVORE = LinearSegmentedColormap.from_list(
+    "avc_divergente",
+    [AZUL_ESCURO_ARVORE, "#f0efec", _escurecer(VERMELHO_BASE_ARVORE)],
+)
+
+fig, ax = plt.subplots(figsize=(40, 18))
+anotacoes = plot_tree(
+    melhor_arvore["pipeline"].named_steps["modelo"],
+    feature_names=nomes_variaveis,
+    class_names=["Sem AVC", "AVC"],
+    filled=True, rounded=True, proportion=True, impurity=False,
+    fontsize=7, ax=ax,
+)
+# plot_tree preenche cada nó com sua própria paleta por padrão; sobrescrevemos
+# a cor de cada nó pela escala divergente acima, calculada a partir da
+# proporção real de AVC naquele nó (tree_.value), e ajustamos a cor do texto
+# para manter contraste de leitura sobre o novo fundo.
+#
+# `plot_tree` retorna uma anotação por nó MAIS duas anotações extras ("True"/
+# "False", rotulando os dois ramos logo abaixo da raiz) que não têm caixa de
+# fundo (`get_bbox_patch() is None`) — filtramos essas antes de casar a lista
+# com `tree_.value`, ou o pareamento nó-a-nó ficaria deslocado.
+anotacoes_dos_nos = [a for a in anotacoes if a.get_bbox_patch() is not None]
+valores_por_no = melhor_arvore["pipeline"].named_steps["modelo"].tree_.value
+assert len(anotacoes_dos_nos) == len(valores_por_no), (
+    "Número de anotações não bate com o número de nós da árvore — "
+    "verificar versão do scikit-learn e a lógica de filtragem acima."
+)
+for anotacao, valor_no in zip(anotacoes_dos_nos, valores_por_no):
+    total_no = valor_no[0].sum()
+    proporcao_avc = valor_no[0][1] / total_no if total_no > 0 else 0.5
+    cor_no = CMAP_DIVERGENTE_ARVORE(proporcao_avc)
+    anotacao.get_bbox_patch().set_facecolor(cor_no)
+    luminancia = 0.299 * cor_no[0] + 0.587 * cor_no[1] + 0.114 * cor_no[2]
+    anotacao.set_color("#ffffff" if luminancia < 0.6 else TINTA_PRIMARIA)
+
+ax.set_title(
+    f"Estrutura da Árvore de Decisão vencedora ({melhor_arvore['Modelo']})",
+    fontsize=15, fontweight="bold", color=TINTA_PRIMARIA, loc="left", pad=16,
+)
+fig.text(0.01, 0.965,
+         "Cor de cada nó = proporção real de pacientes com AVC ali dentro (azul → sem AVC, vermelho → AVC, cinza → 50/50); "
+         "\"value\" mostra a fração [sem AVC, AVC] da amostra de treino que chegou a cada nó",
+         fontsize=10, color=TINTA_SECUNDARIA)
+fig.tight_layout(rect=(0, 0, 1, 0.95))
+fig.savefig(PASTA_RESULTADOS / "fig_arvore_estrutura.png", dpi=150)
+plt.show()
+print(f"Diagrama da árvore salvo em: {PASTA_RESULTADOS / 'fig_arvore_estrutura.png'}")
+
+# %% [markdown]
 # ## 7. Seleção dos dois modelos finais e salvamento
 #
 # O sistema disponibiliza **dois modelos ao usuário final** — o melhor KNN e a

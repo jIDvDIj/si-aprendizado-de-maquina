@@ -37,6 +37,8 @@ As variáveis dividem-se em numéricas contínuas (`age`, `avg_glucose_level`, `
 
 Um ponto central da implementação: as transformações que **aprendem parâmetros** dos dados (mediana da imputação, mínimo/máximo da escala, categorias do encoding) foram encapsuladas em um `ColumnTransformer` **dentro do pipeline**, de modo que são ajustadas exclusivamente com o conjunto de treino — eliminando vazamento de dados — e reaplicadas de forma idêntica e automática a qualquer dado novo, inclusive na interface web.
 
+**Importante não confundir esta etapa com o balanceamento da Seção 3.2**: o encoding (converter texto em número) resolve o problema de os algoritmos não operarem sobre texto — ele não altera a proporção entre pacientes com e sem AVC. Essa proporção só é tratada na etapa seguinte, com uma técnica diferente (SMOTE), sobre um recorte diferente dos dados (só o treino, só depois do split).
+
 ### 3.2 Divisão treino/teste e balanceamento (SMOTE)
 
 Os dados foram divididos em **80% treino (4.087 pacientes) e 20% teste (1.022 pacientes)** com `stratify` no alvo — ambas as partições mantêm os 4,9% de AVC — e `random_state = 42` para reprodutibilidade total.
