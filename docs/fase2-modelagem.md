@@ -1,0 +1,165 @@
+# Fase 2 — Divisão dos Dados, Balanceamento (SMOTE) e Modelagem
+
+> Código-fonte: `treino_modelo.py`, seções 3 e 4 (linhas 281–384).
+
+Esta fase parte do `df_limpo` produzido na Fase 1 (5.109 pacientes, ainda com
+colunas brutas — a transformação numérica só acontece dentro do pipeline) e
+entrega 10 modelos treinados e avaliados: 6 KNN + 4 Árvores de Decisão.
+
+## 2.1 Divisão treino/teste
+
+```python
+X = df_limpo.drop(columns=["stroke"])
+y = df_limpo["stroke"]
+
+X_treino, X_teste, y_treino, y_teste = train_test_split(
+    X, y, test_size=0.20, stratify=y, random_state=RANDOM_STATE
+)
+```
+
+| | Pacientes | Proporção de AVC |
+|---|---:|---:|
+| Treino | 4.087 (80%) | 4,9% (199 casos) |
+| Teste | 1.022 (20%) | 4,9% (50 casos) |
+
+Dois pontos de projeto aqui:
+
+- **`stratify=y`**: sem isso, a divisão aleatória poderia sub- ou
+  super-representar a classe rara (AVC) no teste, distorcendo qualquer métrica
+  calculada depois. Com estratificação, treino e teste preservam os mesmos
+  4,9% do dataset original.
+- **`random_state=42`** fixo em todas as etapas estocásticas do projeto
+  (split, SMOTE, Árvore) — qualquer pessoa que rode o script obtém exatamente
+  os mesmos 4.087/1.022 pacientes e os mesmos números de todo o relatório.
+
+## 2.2 Balanceamento com SMOTE — o porquê e o como
+
+Com apenas 199 dos 4.087 pacientes de treino sendo casos de AVC (4,9%), um
+classificador treinado direto tende a aprender que "prever sempre negativo"
+já minimiza o erro médio — exatamente o comportamento inútil discutido na
+Fase 3. O **SMOTE** (Synthetic Minority Over-sampling Technique) ataca isso
+**sintetizando novos exemplos da classe minoritária**, interpolando entre
+vizinhos próximos no espaço já normalizado (por isso ele entra depois do
+`ColumnTransformer` no pipeline, nunca antes).
+
+### A regra que não pode ser violada: SMOTE só no treino, só depois do split
+
+Se o balanceamento fosse aplicado **antes** do split (ou sobre o dataset
+inteiro), exemplos sintéticos gerados a partir de pacientes que acabariam no
+conjunto de teste vazariam informação para o treino — o modelo teria, na
+prática, "visto" uma versão interpolada dos próprios casos de teste antes da
+avaliação, inflando artificialmente as métricas. A ordem correta é:
+
+```
+dataset limpo → split 80/20 (stratify) → SMOTE (só em X_treino/y_treino) → treino do modelo
+                                       ↘ X_teste/y_teste permanecem intocados, com os 4,9% reais
+```
+
+### Por que o `Pipeline` do imbalanced-learn (e não o do scikit-learn)
+
+```python
+from imblearn.pipeline import Pipeline as PipelineImblearn
+from imblearn.over_sampling import SMOTE
+
+def construir_pipeline(modelo) -> PipelineImblearn:
+    return PipelineImblearn(steps=[
+        ("preprocessamento", construir_preprocessador()),
+        ("smote", SMOTE(random_state=RANDOM_STATE)),
+        ("modelo", modelo),
+    ])
+```
+
+O `Pipeline` padrão do scikit-learn executa todo passo tanto em `fit` quanto
+em `predict`/`transform`. O `Pipeline` do **imbalanced-learn** trata o SMOTE
+como um passo especial de **reamostragem**: ele só age durante `fit` (ajusta
+o pré-processador, gera sintéticos, treina o modelo) e é **automaticamente
+ignorado** durante `predict` — a chamada `pipeline.predict(X_teste)` passa
+X_teste pelo pré-processador e direto para o modelo, sem SMOTE. É essa
+propriedade que garante, por construção, que o teste nunca é balanceado
+artificialmente e que o mesmo objeto pode ser salvo e reusado em produção
+(Fase Bônus) sem carregar lógica de treino.
+
+### Efeito medido (bloco demonstrativo, linhas 303–318 do script)
+
+O script materializa o "antes e depois" só para fins didáticos (o fluxo
+oficial de treino usa o pipeline acima, este bloco é ilustrativo):
+
+| | Classe 0 (sem AVC) | Classe 1 (AVC) |
+|---|---:|---:|
+| Treino antes do SMOTE | 3.888 | 199 |
+| Treino depois do SMOTE | 3.888 | **3.888** |
+
+O SMOTE nivela as duas classes em exatamente 3.888 exemplos cada — os 3.889
+exemplos positivos "extras" são sintéticos, interpolados entre os 199 casos
+reais no espaço de 17 variáveis já normalizado. O conjunto de teste continua
+com 1.022 pacientes e os mesmos 50 casos reais de AVC (4,9%).
+
+## 2.3 Laço manual de hiperparâmetros
+
+O enunciado pede exploração por **laço manual** (não `GridSearchCV`) — decisão
+didática: cada uma das 10 combinações é uma chamada explícita e visível no
+código, facilitando explicar a lógica na apresentação em vez de esconder a
+busca dentro de uma função de biblioteca.
+
+### KNN — 3 valores de K × 2 métricas de distância = 6 combinações
+
+```python
+NOME_DISTANCIA = {"euclidean": "Euclidiana", "manhattan": "Manhattan"}
+for metrica_distancia in ["euclidean", "manhattan"]:
+    for k in [3, 5, 7]:
+        knn = KNeighborsClassifier(n_neighbors=k, metric=metrica_distancia)
+        resultados.append(avaliar_modelo(nome, construir_pipeline(knn)))
+```
+
+Gera: KNN(K=3,Euclidiana), KNN(K=5,Euclidiana), KNN(K=7,Euclidiana),
+KNN(K=3,Manhattan), KNN(K=5,Manhattan), KNN(K=7,Manhattan).
+
+### Árvore de Decisão — 4 profundidades máximas
+
+```python
+for profundidade in [3, 5, 10, None]:
+    arvore = DecisionTreeClassifier(max_depth=profundidade, random_state=RANDOM_STATE)
+    resultados.append(avaliar_modelo(nome, construir_pipeline(arvore)))
+```
+
+`max_depth=None` remove o limite de profundidade — a árvore cresce até que
+todas as folhas sejam puras (ou até o mínimo de amostras por folha), o cenário
+clássico de **overfitting** que a Fase 3 quantifica.
+
+**Decisão importante:** a Árvore **não** usa `class_weight="balanced"`. Como o
+balanceamento já é responsabilidade do SMOTE dentro do próprio pipeline,
+somar as duas técnicas as faria competir — o SMOTE já entrega à árvore um
+treino 50/50; aplicar `class_weight` por cima re-ponderaria uma base que já
+está equilibrada, distorcendo a comparação entre as configurações.
+
+### A função que treina e mede cada combinação
+
+```python
+def avaliar_modelo(nome: str, pipeline: PipelineImblearn) -> dict:
+    pipeline.fit(X_treino, y_treino)
+    y_previsto = pipeline.predict(X_teste)
+    return {
+        "Modelo": nome,
+        "Acurácia": accuracy_score(y_teste, y_previsto),
+        "Precisão (AVC)": precision_score(y_teste, y_previsto, pos_label=1, zero_division=0),
+        "Recall (AVC)": recall_score(y_teste, y_previsto, pos_label=1, zero_division=0),
+        "F1-Score (AVC)": f1_score(y_teste, y_previsto, pos_label=1, zero_division=0),
+        "matriz_confusao": confusion_matrix(y_teste, y_previsto, labels=[0, 1]),
+        "pipeline": pipeline,
+    }
+```
+
+Cada chamada: (1) treina o pipeline completo — pré-processamento ajustado no
+treino, SMOTE aplicado no treino, modelo ajustado nos dados balanceados; (2)
+prediz sobre `X_teste` (sem SMOTE, sem vazamento); (3) calcula as quatro
+métricas da Fase 3, sempre com `pos_label=1` (a classe AVC é o foco clínico,
+não a classe majoritária); (4) guarda o `pipeline` treinado inteiro no
+dicionário de resultado — é dali que o melhor modelo é extraído e salvo, sem
+precisar retreinar nada (Fase 3, Seção 7).
+
+`zero_division=0` evita erro/aviso caso alguma combinação nunca preveja a
+classe positiva (o que aconteceria, por exemplo, no baseline trivial da
+Fase 3).
+
+Ao final desta fase, a lista `resultados` contém 10 dicionários — a matéria-
+prima para a tabela comparativa e os heatmaps da Fase 3.

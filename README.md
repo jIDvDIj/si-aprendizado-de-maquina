@@ -30,10 +30,33 @@ artefato `modelos/modelo_avc.joblib`.
 │   ├── resultados_comparativos.csv
 │   └── resultados_efeito_smote.csv
 └── docs/
-    ├── relatorio.md        # relatório crítico (metodologia, métricas, discussão)
-    ├── base-projeto.md     # enunciado do projeto
-    └── prompt-base.md      # especificação técnica das decisões
+    ├── relatorio.md                    # relatório crítico (metodologia, métricas, discussão)
+    ├── fase1-preprocessamento.md       # doc. técnica: limpeza, encoding, escala (Fase 1)
+    ├── fase2-modelagem.md              # doc. técnica: split, SMOTE, laço de hiperparâmetros (Fase 2)
+    ├── fase3-avaliacao.md              # doc. técnica: métricas, heatmaps, seleção do modelo (Fase 3)
+    ├── fase-bonus-deployment.md        # doc. técnica: interface Streamlit (Fase Bônus)
+    ├── base-projeto.md                 # enunciado do projeto
+    └── prompt-base.md                  # especificação técnica das decisões
 ```
+
+## Documentação por fase
+
+Cada fase do projeto tem um documento técnico dedicado, detalhando **o que foi
+feito com os dados** e **como o código implementa cada decisão** (com números
+reais extraídos do dataset e do pipeline treinado, não estimativas):
+
+- [`docs/fase1-preprocessamento.md`](docs/fase1-preprocessamento.md) — análise
+  exploratória, limpeza estrutural, imputação, encoding e normalização.
+- [`docs/fase2-modelagem.md`](docs/fase2-modelagem.md) — split estratificado,
+  balanceamento com SMOTE via pipeline, laço manual de hiperparâmetros.
+- [`docs/fase3-avaliacao.md`](docs/fase3-avaliacao.md) — métricas, matrizes de
+  confusão, ablação do SMOTE, seleção e salvamento do melhor modelo.
+- [`docs/fase-bonus-deployment.md`](docs/fase-bonus-deployment.md) — interface
+  Streamlit, separação treino/interface, nota de ambiente (pandas/Streamlit).
+
+O [`docs/relatorio.md`](docs/relatorio.md) é a síntese executiva (o texto
+pronto para o documento entregável); os documentos de fase acima são o
+aprofundamento técnico de apoio à apresentação.
 
 ## Como executar
 
